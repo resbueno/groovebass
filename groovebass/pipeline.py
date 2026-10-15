@@ -89,7 +89,7 @@ def transcribe(song_dir: Path) -> dict:
     if not ((song_dir / "beats.json").exists() and (song_dir / "bars.json").exists()):
         rhythm.compute_grid(song_dir)
     beats, bars, bpb = rhythm.load_grid(song_dir)
-    found, info = notelib.transcribe(song_dir / "bass.wav")
+    found, info = notelib.transcribe(song_dir / "bass.wav", cache=song_dir / "pitch.npz")
     measures, subdiv = rhythm.quantize(found, beats, bars)
 
     # nota do baixo em cada tempo (para a cifra): a que soa no tempo ou começa na 1ª metade dele

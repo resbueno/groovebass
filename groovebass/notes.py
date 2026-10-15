@@ -5,7 +5,9 @@ O baixo toca quase sempre uma nota por vez, então basta acompanhar a altura ao 
 - início das notas pelo onset do próprio stem (notas repetidas na mesma altura só se separam aí)
   e pelas mudanças de altura que se sustentam;
 - a altura de cada nota é a mediana do começo dela (o fim pode ter slide ou soltura);
-- erros de oitava (o mais comum do pitch tracking em baixo) são corrigidos pelos vizinhos.
+- quadros com som forte em que o CREPE não reconhece altura (hammer-on, nota abafada) recuperam a
+  nota pelo pico do espectro, na oitava das vizinhas;
+- notas repetidas na mesma altura se separam também pela queda e retomada do volume.
 """
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +26,12 @@ FMIN, FMAX = 29.0, 420.0          # Si0 do 5 cordas a ~Lá#4 (reais)
 LOW, HIGH = 21, 72                # faixa MIDI aceita (A0..C5)
 VOICED = 0.30                     # periodicidade mínima para considerar que há nota
 MIN_FRAMES = 4                    # 40 ms
+# Calibrados contra a partitura de No More Tears (riff de 11 notas por compasso: colcheias repetidas na
+# corda solta e hammer-ons): ataques achados 45% -> 76%, notas por compasso 8 -> 11.
+ONSET_DELTA = 0.03                # sensibilidade dos onsets (librosa) no stem do baixo
+REATTACK_DB = 2.0                 # nova palhetada na mesma nota: o volume cai e volta a subir isso
+SPEC_NFFT = 2048                  # espectro para recuperar notas sem periodicidade (256 ms, ~3,9 Hz/faixa)
+RESCUE_DB = -22.0                 # som forte o bastante para procurar a nota no espectro
 
 
 @dataclass
@@ -60,15 +68,69 @@ def _onsets(x: np.ndarray) -> np.ndarray:
 
     env = librosa.onset.onset_strength(y=x, sr=SR, hop_length=HOP, n_fft=512, fmax=2000, n_mels=48, lag=1, max_size=3)
     return librosa.onset.onset_detect(onset_envelope=env, sr=SR, hop_length=HOP, backtrack=True,
-                                      units="frames", delta=0.08, wait=6)
+                                      units="frames", delta=ONSET_DELTA, wait=6)
 
 
-def transcribe(wav: Path, model: str = "tiny") -> tuple[list[Note], dict]:
-    """`model`: "tiny" (~1/30 do custo; padrão, cabe no servidor sem GPU) ou "full"."""
+def _reattacks(db: np.ndarray, voiced: np.ndarray) -> list[int]:
+    """Nova palhetada sem mudar de altura (colcheias repetidas na corda solta): o volume tem um vale
+    e volta a subir pelo menos REATTACK_DB dentro de 70 ms, depois de ter caído desde o pico anterior."""
+    out = []
+    n = len(db)
+    for i in range(3, n - 8):
+        if not voiced[i] or db[i] > db[i - 1] or db[i] > db[i + 1]:
+            continue
+        rise = db[i + 1:i + 8].max() - db[i]
+        drop = db[max(0, i - 10):i].max() - db[i]
+        if rise >= REATTACK_DB and drop >= REATTACK_DB * 0.5:
+            out.append(i)
+    return out
+
+
+def _rescue(spec: np.ndarray, freqs: np.ndarray, db: np.ndarray, voiced: np.ndarray,
+            midi: np.ndarray) -> int:
+    """Hammer-ons e notas abafadas: o CREPE dá periodicidade ~0 mesmo com o baixo soando forte (medido
+    em No More Tears: o Si1 da casa 10, 3 das 11 notas de cada compasso do riff). Nesses quadros a nota
+    sai do pico do espectro (50-400 Hz), na oitava mais próxima das notas que o CREPE achou em volta
+    (o pico costuma ser o 2º harmônico). Altera `voiced`/`midi` no lugar; devolve quantos quadros."""
+    band = (freqs >= 50) & (freqs <= 400)
+    bf = freqs[band]
+    idx = np.flatnonzero((~voiced) & (db > RESCUE_DB))
+    ok = np.flatnonzero(voiced)
+    if not len(idx) or not len(ok):
+        return 0
+    done = 0
+    for i in idx:
+        col = spec[band, min(i, spec.shape[1] - 1)]
+        if col.max() <= 0:
+            continue
+        peak = 69 + 12 * np.log2(bf[int(np.argmax(col))] / 440.0)
+        lo, hi = np.searchsorted(ok, i - 100), np.searchsorted(ok, i + 100)
+        if hi <= lo:
+            continue
+        ref = float(np.nanmedian(midi[ok[lo:hi]]))
+        cand = [peak - 24, peak - 12, peak]
+        best = min((c for c in cand if LOW <= round(c) <= HIGH), key=lambda c: abs(c - ref), default=None)
+        if best is None:
+            continue
+        midi[i] = best
+        voiced[i] = True
+        done += 1
+    return done
+
+
+def transcribe(wav: Path, model: str = "tiny", cache: Path | None = None) -> tuple[list[Note], dict]:
+    """`model`: "tiny" (~1/30 do custo; padrão, cabe no servidor sem GPU) ou "full". `cache`: .npz com a
+    saída do CREPE (o passo caro), reaproveitada ao reprocessar."""
     import librosa
 
     x = _load(wav)
-    f0, per = _pitch(x, model)
+    if cache and cache.exists():
+        z = np.load(cache)
+        f0, per = z["f0"], z["per"]
+    else:
+        f0, per = _pitch(x, model)
+        if cache:
+            np.savez_compressed(cache, f0=f0, per=per)
     n = len(f0)
     rms = librosa.feature.rms(y=x, frame_length=512, hop_length=HOP, center=True)[0][:n]
     if len(rms) < n:
@@ -78,10 +140,14 @@ def transcribe(wav: Path, model: str = "tiny") -> tuple[list[Note], dict]:
     db -= peak
     voiced = (per >= VOICED) & (db > -38) & (f0 > 0)
     midi = np.where(voiced, 69 + 12 * np.log2(np.maximum(f0, 1e-3) / 440.0), np.nan)
+    spec = np.abs(librosa.stft(x, n_fft=SPEC_NFFT, hop_length=HOP, center=True))
+    freqs = librosa.fft_frequencies(sr=SR, n_fft=SPEC_NFFT)
+    rescued = _rescue(spec, freqs, db, voiced, midi)
     rounded = np.round(midi)
 
     # pontos de corte: onsets + mudança de altura sustentada (>= 4 quadros) + início de trecho com nota
     cuts = set(int(o) for o in _onsets(x) if o < n)
+    cuts.update(_reattacks(db, voiced))
     for i in range(1, n):
         if voiced[i] and not voiced[i - 1]:
             cuts.add(i)
@@ -125,24 +191,27 @@ def transcribe(wav: Path, model: str = "tiny") -> tuple[list[Note], dict]:
         notes.append(Note(start=first * HOP / SR, end=(last + 1) * HOP / SR, midi=p,
                           db=float(np.max(db[first:first + 5]))))
 
-    notes = _fix_octaves(notes)
     # notas fracas e curtas são vazamento/ruído do stem
     notes = [m for m in notes if not (m.db < -28 and m.end - m.start < 0.09)]
+    notes = _fix_high_outliers(notes)
     for i in range(len(notes) - 1):                # monofônico: uma nota termina quando a próxima começa
         notes[i].end = min(notes[i].end, notes[i + 1].start)
-    info = {"notes": len(notes), "voiced_ratio": round(float(voiced.mean()), 3), "crepe_model": model}
+    info = {"notes": len(notes), "voiced_ratio": round(float(voiced.mean()), 3), "crepe_model": model,
+            "rescued_frames": rescued}
     return notes, info
 
 
-def _fix_octaves(notes: list[Note]) -> list[Note]:
-    """Nota a ~uma oitava dos dois vizinhos (que estão perto entre si) é erro de oitava do tracker."""
-    for i in range(1, len(notes) - 1):
-        prev, cur, nxt = notes[i - 1].midi, notes[i].midi, notes[i + 1].midi
-        if abs(prev - nxt) > 5:
+def _fix_high_outliers(notes: list[Note], window: float = 2.0) -> list[Note]:
+    """Nota uma oitava ou mais acima da mediana das vizinhas (±2 s) é o CREPE pegando o 4º harmônico
+    (Réb1 lido como Réb3): desce uma oitava. Linhas que alternam oitavas (Dó2-Dó3) não mudam, porque a
+    mediana fica entre elas."""
+    starts = np.array([m.start for m in notes])
+    pitches = np.array([m.midi for m in notes])
+    for i, m in enumerate(notes):
+        lo, hi = np.searchsorted(starts, m.start - window), np.searchsorted(starts, m.start + window)
+        if hi - lo < 5:
             continue
-        ref = (prev + nxt) / 2
-        for shift in (-12, 12):
-            if abs(cur + shift - ref) <= 5 and abs(cur - ref) >= 9:
-                notes[i].midi = cur + shift
-                break
+        med = float(np.median(pitches[lo:hi]))
+        if m.midi - med >= 11.5 and m.midi - 12 >= LOW:
+            m.midi -= 12
     return notes
