@@ -58,6 +58,16 @@ def process(song: dict) -> None:
         timings["finalize"] = round(time.time() - row["stage_started"], 1)
     db.update(sid, status="done", stage=None, message="Pronto", stats=stats, finished=time.time(), error=None,
               timings=timings, progress=1.0)
+    _copy_identity(sid)
+
+
+def _copy_identity(sid: str) -> None:
+    """Banda e nome identificados no Kicksnare (Groq) valem aqui, se a banda ainda está vazia."""
+    from kicksnare import db as ksdb
+
+    ks, row = ksdb.get(sid), db.get(sid) or {}
+    if ks and ks.get("artist") and not row.get("artist"):
+        db.update(sid, artist=ks["artist"], **({"title": ks["title"]} if ks.get("title") else {}))
 
 
 def requeue() -> int:

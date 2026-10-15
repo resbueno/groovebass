@@ -218,6 +218,18 @@ def _ready(song_id: str, write: bool = False) -> Path:
     return DATA_DIR / song_id
 
 
+# Biblioteca compartilhada com o Kicksnare: o que entra aqui entra lá (mesmo id e dono); nome, banda e
+# compartilhamento acompanham. Apagar é independente em cada sistema.
+def _mirror_enqueue(song_id: str, source: str, title: str | None, owner_id: int) -> None:
+    if not ksdb.get(song_id):
+        ksdb.enqueue(song_id, source, title=title, owner_id=owner_id)
+
+
+def _mirror_update(song_id: str, **fields) -> None:
+    if ksdb.get(song_id):
+        ksdb.update(song_id, **fields)
+
+
 def _scoped_id(user: dict, raw: str) -> str:
     return f"u{user['id']}-{raw}"
 
@@ -265,7 +277,9 @@ def add_song(body: NewSong) -> dict:
     existing = db.get(song_id)
     if not (existing and existing.get("owner_id") == user["id"] and existing["status"] in ("queued", "running", "done")):
         _check_quota(user)
-    return db.enqueue(song_id, url, owner_id=user["id"])
+    song = db.enqueue(song_id, url, owner_id=user["id"])
+    _mirror_enqueue(song_id, url, None, user["id"])
+    return song
 
 
 @app.post("/api/upload")
@@ -285,7 +299,10 @@ async def upload(file: UploadFile = File(...)) -> dict:
                 dest.unlink(missing_ok=True)
                 raise HTTPException(413, "arquivo grande demais (máx. 300 MB)")
             out.write(chunk)
-    return db.enqueue(_scoped_id(user, file_song_id(dest)), str(dest), title=Path(name).stem, owner_id=user["id"])
+    song_id = _scoped_id(user, file_song_id(dest))
+    song = db.enqueue(song_id, str(dest), title=Path(name).stem, owner_id=user["id"])
+    _mirror_enqueue(song_id, str(dest), Path(name).stem, user["id"])
+    return song
 
 
 @app.get("/api/songs/{song_id}")
@@ -322,6 +339,7 @@ def rename_song(song_id: str, body: Rename) -> dict:
         fields["artist"] = artist or None
     if fields:
         db.update(song_id, **fields)
+        _mirror_update(song_id, **fields)
         if fields.get("title") and song["status"] == "done":
             meta = DATA_DIR / song_id / "meta.json"
             try:
@@ -377,6 +395,7 @@ class Share(BaseModel):
 def share_song(song_id: str, body: Share) -> dict:
     _song(song_id, write=True)
     db.update(song_id, shared=1 if body.shared else 0)
+    _mirror_update(song_id, shared=1 if body.shared else 0)
     return get_song(song_id)
 
 

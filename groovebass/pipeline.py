@@ -28,15 +28,16 @@ REUSE_FILES = ("audio.wav", "meta.json", "bass.wav", "drums.wav", "no_drums.wav"
 
 
 # ---------- reaproveitamento do Kicksnare ----------
-def kicksnare_twin(raw_id: str) -> Path | None:
-    """Pasta da mesma música no Kicksnare (qualquer usuário), preferindo uma que já tenha o baixo."""
+def kicksnare_twin(song_id: str, raw_id: str) -> Path | None:
+    """Pasta da mesma música no Kicksnare: a do mesmo dono (mesmo id) primeiro, depois a de qualquer
+    usuário que já tenha o baixo separado."""
     cands = [p for p in KS_DATA.glob(f"u*-{raw_id}") if (p / "audio.wav").exists()]
-    cands.sort(key=lambda p: ((p / "bass.wav").exists(), (p / "bars.json").exists()), reverse=True)
+    cands.sort(key=lambda p: (p.name == song_id, (p / "bass.wav").exists(), (p / "bars.json").exists()), reverse=True)
     return cands[0] if cands else None
 
 
 def reuse_from_kicksnare(song_dir: Path, raw_id: str) -> dict:
-    twin = kicksnare_twin(raw_id)
+    twin = kicksnare_twin(song_dir.name, raw_id)
     if not twin:
         return {}
     song_dir.mkdir(parents=True, exist_ok=True)
