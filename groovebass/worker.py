@@ -41,6 +41,7 @@ def process(song: dict) -> None:
     if meta.exists() and not row.get("title"):
         db.update(sid, title=json.loads(meta.read_text()).get("title"))
     db.update(sid, duration=_duration(song_dir / "audio.wav"))
+    _identify(sid, meta)
 
     if not (song_dir / "bass.wav").exists():
         _set(sid, "separate", "Isolando o baixo (alguns minutos)")
@@ -61,13 +62,50 @@ def process(song: dict) -> None:
     _copy_identity(sid)
 
 
-def _copy_identity(sid: str) -> None:
+def _copy_identity(sid: str) -> bool:
     """Banda e nome identificados no Kicksnare (Groq) valem aqui, se a banda ainda está vazia."""
     from kicksnare import db as ksdb
 
     ks, row = ksdb.get(sid), db.get(sid) or {}
     if ks and ks.get("artist") and not row.get("artist"):
         db.update(sid, artist=ks["artist"], **({"title": ks["title"]} if ks.get("title") else {}))
+        return True
+    return False
+
+
+def _identify(sid: str, meta) -> None:
+    """Banda e nome da música pela mesma IA do Kicksnare (Groq), uma vez por música. Se o Kicksnare já
+    identificou, copia de lá sem chamar a IA; se identificar aqui primeiro, vale lá também (onde a banda
+    estiver vazia). O que o usuário editou prevalece. Falha aqui não interrompe o processamento."""
+    from kicksnare import db as ksdb
+    from kicksnare import identify
+
+    try:
+        if _copy_identity(sid):
+            return
+        info = json.loads(meta.read_text()) if meta.exists() else {}
+        row = db.get(sid) or {}
+        if row.get("artist") or not identify.enabled():
+            return
+        raw = info.get("source_title") or info.get("title") or row.get("title")
+        if not raw:
+            return
+        found = identify.identify(raw, info.get("uploader"), info.get("artist"), info.get("track"))
+        fields = {}
+        if found["title"] and row.get("title") in (None, raw, info.get("title")):
+            fields["title"] = info["title"] = found["title"]
+        if found["artist"]:
+            fields["artist"] = found["artist"]
+        if fields:
+            db.update(sid, **fields)
+            ks = ksdb.get(sid)
+            if ks and not ks.get("artist"):
+                ksdb.update(sid, **fields)
+        info["identified"] = True
+        meta.write_text(json.dumps(info))
+        print(f"[gb {sid}] identificado: {raw!r} -> {found}", flush=True)
+    except Exception as e:  # noqa: BLE001 - identificação é só conveniência
+        print(f"[gb {sid}] identificação falhou: {e}", flush=True)
 
 
 def requeue() -> int:
