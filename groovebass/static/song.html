@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GrooveBass</title>
+<title>Groovebass</title>
 <link rel="icon" type="image/png" href="__BASE__/static/favicon.png">
 <link rel="apple-touch-icon" href="__BASE__/static/apple-touch-icon.png">
 <meta name="theme-color" content="#16181d">
@@ -73,7 +73,7 @@
 </style>
 </head>
 <body class="wide">
-<header class="brandbar"><div class="in"><a href="__BASE__/" aria-label="GrooveBass — início"><img src="__BASE__/static/logo.png" alt="GrooveBass — partitura e linhas de baixo" width="243" height="46"></a></div></header>
+<header class="brandbar"><div class="in"><a href="__BASE__/" aria-label="Groovebass — início"><img src="__BASE__/static/logo.png" alt="Groovebass — partitura e linhas de baixo" width="243" height="46"></a></div></header>
 <main>
   <a class="back" href="__BASE__/">← Músicas</a>
   <div class="titlebar">
@@ -919,7 +919,7 @@ $("#renameForm").addEventListener("submit", async (ev) => {
     headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: $("#renameInput").value }) });
   if (!r.ok) { let d = r.statusText; try { d = (await r.json()).detail || d; } catch {} $("#renameMsg").textContent = d; return; }
   const song = await r.json();
-  $("#title").textContent = song.title; document.title = "GrooveBass · " + song.title;
+  $("#title").textContent = song.title; document.title = "Groovebass · " + song.title;
   $("#renameForm").hidden = true; $("#renameBtn").hidden = false;
 });
 
@@ -983,7 +983,7 @@ async function exportPdf() {
       await (window.svg2pdf.svg2pdf || window.svg2pdf)(svgs[i], pdf, {
         x: M + ((W - 2 * M) - w * scale) / 2, y: M + HEAD, width: w * scale, height: h * scale });
       pdf.setFont("helvetica", "normal"); pdf.setTextColor(90);
-      pdf.setFontSize(8); pdf.text(`GrooveBass · ${i + 1}/${svgs.length}`, W - M, H - 14, { align: "right" });
+      pdf.setFontSize(8); pdf.text(`Groovebass · ${i + 1}/${svgs.length}`, W - M, H - 14, { align: "right" });
     }
     pdf.setPage(1); pdf.setTextColor(0);
     let fs = 15; pdf.setFont("helvetica", "bold"); pdf.setFontSize(fs);
