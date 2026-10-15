@@ -4,9 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GrooveBass</title>
-<link rel="icon" type="image/svg+xml" href="__BASE__/static/favicon.svg">
+<link rel="icon" type="image/png" href="__BASE__/static/favicon.png">
+<link rel="apple-touch-icon" href="__BASE__/static/apple-touch-icon.png">
 <meta name="theme-color" content="#16181d">
-<link rel="stylesheet" href="__BASE__/static/base.css?v=5">
+<link rel="stylesheet" href="__BASE__/static/base.css?v=6">
 <style>
   [hidden] { display: none !important; }
   #score { background: #fff; border-radius: 12px; padding: 8px 4px; overflow-x: hidden; border: 1px solid var(--line); }
@@ -72,7 +73,7 @@
 </style>
 </head>
 <body class="wide">
-<header class="brandbar"><div class="in"><a class="wordmark" href="__BASE__/" aria-label="GrooveBass — início">Groove<b>Bass</b> <span class="tag">partitura, tablatura e cifra de baixo</span></a></div></header>
+<header class="brandbar"><div class="in"><a href="__BASE__/" aria-label="GrooveBass — início"><img src="__BASE__/static/logo.png" alt="GrooveBass — partitura e linhas de baixo" width="243" height="46"></a></div></header>
 <main>
   <a class="back" href="__BASE__/">← Músicas</a>
   <div class="titlebar">
@@ -338,7 +339,7 @@ async function drawScore(reload) {
   const holder = $("#osmd");
   if (!osmd) {
     osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(holder, { autoResize: true, drawTitle: false, drawSubtitle: false, drawComposer: false, drawPartNames: false,
-      autoBeam: true, cursorsOptions: [{ type: 0, color: "#a16207", alpha: 0.5, follow: false }] });
+      autoBeam: true, cursorsOptions: [{ type: 0, color: "#c2410c", alpha: 0.5, follow: false }] });
     styleParts(osmd);
     styleChords(osmd);
     // o autoResize redesenha por conta própria: a cor das partes vai junto em todo render

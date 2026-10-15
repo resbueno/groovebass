@@ -1,11 +1,11 @@
 :root {
   --bg: #fafaf8; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e4e4de; --hover: #f1f1ec;
-  --accent: #a16207; --accent-ink: #ffffff; --ok: #15803d; --err: #b91c1c; --warn: #a16207;
+  --accent: #c2410c; --accent-ink: #ffffff; --ok: #15803d; --err: #b91c1c; --warn: #a16207;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #161614; --panel: #1c1c1a; --text: #ecece6; --muted: #9a9a92; --line: #2e2e2a; --hover: #252522;
-    --accent: #fbbf24; --accent-ink: #1a1208; --ok: #4ade80; --err: #f87171; --warn: #facc15;
+    --accent: #fb923c; --accent-ink: #1a1208; --ok: #4ade80; --err: #f87171; --warn: #facc15;
   }
 }
 * { box-sizing: border-box; }
@@ -157,8 +157,3 @@ body.wide main, body.wide .brandbar .in { max-width: 1440px; }
 .nodrum::after { content: ""; position: absolute; left: -2px; right: -2px; top: 50%; height: 2px;
   background: currentColor; transform: rotate(-45deg); }
 
-/* GrooveBass: marca em texto no cabeçalho */
-.wordmark { color: #fff; text-decoration: none; font: 700 1.45rem/1 system-ui, sans-serif; letter-spacing: -.01em; display: inline-flex; align-items: baseline; gap: 10px; }
-.wordmark b { color: #e8a33d; }
-.wordmark .tag { font: 400 .8rem/1 system-ui, sans-serif; color: #b8b8b0; letter-spacing: 0; }
-@media (max-width: 560px) { .wordmark .tag { display: none; } }
