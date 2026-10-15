@@ -1,0 +1,1049 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GrooveBass</title>
+<link rel="icon" type="image/svg+xml" href="__BASE__/static/favicon.svg">
+<meta name="theme-color" content="#16181d">
+<link rel="stylesheet" href="__BASE__/static/base.css?v=5">
+<style>
+  [hidden] { display: none !important; }
+  #score { background: #fff; border-radius: 12px; padding: 8px 4px; overflow-x: hidden; border: 1px solid var(--line); }
+  /* o OSMD mede a largura do próprio container: sem padding/borda ali, o desenho cabe exato na tela */
+  #osmd { width: 100%; padding: 0; border: 0; }
+  .pager { display: flex; gap: 12px; align-items: center; }
+  /* controles em duas linhas: reprodução / navegação */
+  .controls { display: flex; flex-direction: column; gap: 18px; }
+  .ctlrow { display: flex; flex-wrap: wrap; gap: 16px 32px; align-items: flex-start; }
+  .ctlrow .field.grow { flex: 1 1 auto; }
+  .scorebar { display: flex; flex-wrap: wrap; gap: 10px 24px; align-items: center; justify-content: space-between;
+    margin: 48px 0 12px; }
+  .scorebar h2 { margin: 0; }
+  .scorebar .row { gap: 8px; }
+  .pgroup { margin-top: 28px; }
+  .pgroup h3 { font-size: .95rem; margin: 0 0 10px; }
+  .grid { border-collapse: collapse; font-size: .8rem; }
+  .grid th { text-align: right; padding: 2px 8px 2px 0; font-weight: 500; color: var(--muted); white-space: nowrap; }
+  .grid td { width: 22px; height: 24px; border: 1px solid var(--line); text-align: center; cursor: pointer;
+    user-select: none; padding: 0; }
+  .grid td.beat { border-left: 2px solid var(--muted); }
+  .grid td.on { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+  .grid td.rare { outline: 1px dashed var(--warn); outline-offset: -3px; }
+  .legend { font-size: .85rem; color: var(--muted); }
+  .grid-wrap { overflow-x: auto; }
+  /* modo tela cheia: partitura ocupa a tela, trilha e controles no rodapé */
+  #fs { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; background: var(--bg); }
+  #fs .fs-top { display: flex; align-items: center; gap: 12px 20px; padding: 10px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  #fs .fs-top h2 { margin: 0; font-size: 1.05rem; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #fsBody { flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; padding: 12px 16px; }
+  #fsBody #score { min-height: 100%; }
+  #fs .fs-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 18px; padding: 10px 16px;
+    border-top: 1px solid var(--line); background: var(--panel); }
+  #fs .fs-foot audio { flex: 1 1 320px; min-width: 0; height: 40px; margin: 0 !important; }
+  #fs .fs-foot .grp { display: flex; align-items: center; gap: 6px; }
+  #fs .fs-foot .grp .lbl { font-size: .75rem; color: var(--muted); }
+  body.fs-on { overflow: hidden; }
+  #fs .fs-next { flex: 1 0 100%; font-size: 1.15rem; min-height: 1.5em; }
+  #fs .fs-next b { color: var(--accent); }
+  #fs .fs-next.soon { font-weight: 600; }
+  #fs .fs-next.soon b { background: var(--accent); color: var(--accent-ink); padding: 0 8px; border-radius: 6px; }
+  /* partes da música */
+  .parts { margin-top: 18px; }
+  .partsbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .partslist { display: flex; flex-wrap: wrap; gap: 6px; }
+  .partslist button { padding: 3px 10px; font-size: .85rem; border-radius: 999px; }
+  .partslist button .n { color: var(--muted); font-size: .75rem; margin-right: 4px; }
+  .partslist button.cur { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .partslist button.cur .n { color: inherit; opacity: .8; }
+  .partrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .partrow input[type=number] { width: 5.5em; }
+  .partrow input[type=text] { flex: 1 1 180px; min-width: 0; }
+  /* vista de cifra */
+  #chordSec { margin-top: 40px; }
+  .chartpart { font-size: .9rem; color: var(--err); margin: 18px 0 6px; min-height: 0; }
+  .chartpart:empty { display: none; }
+  .chartrow { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 6px; }
+  .chartrow .bar { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 6px 10px; min-height: 52px;
+    text-align: left; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); font: inherit; }
+  .chartrow .bar .n { font-size: .7rem; color: var(--muted); }
+  .chartrow .bar .c { font-weight: 700; font-size: 1.05rem; white-space: pre; }
+  .chartrow .bar.cur { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
+</style>
+</head>
+<body class="wide">
+<header class="brandbar"><div class="in"><a class="wordmark" href="__BASE__/" aria-label="GrooveBass — início">Groove<b>Bass</b> <span class="tag">partitura, tablatura e cifra de baixo</span></a></div></header>
+<main>
+  <a class="back" href="__BASE__/">← Músicas</a>
+  <div class="titlebar">
+    <h1 id="title">Carregando…</h1>
+    <button id="renameBtn" type="button" class="ghost sm" title="Editar o nome da música" aria-label="Editar nome" hidden>✎ Editar</button>
+    <button id="reprocessBtn" type="button" class="ghost sm" title="Transcrever de novo com o algoritmo mais recente" hidden>↻ Reprocessar</button>
+  </div>
+  <form id="renameForm" class="row" hidden>
+    <input type="text" id="renameInput" maxlength="120" style="flex:1 1 320px" aria-label="Nome da música">
+    <button class="primary" type="submit">Salvar</button>
+    <button type="button" id="renameCancel" class="ghost">Cancelar</button>
+    <span id="renameMsg" class="small" style="color:var(--err)"></span>
+  </form>
+  <div class="meta" id="chips"></div>
+  <div id="status" class="muted" style="margin-top:12px"></div>
+
+  <div id="ready" hidden>
+    <audio id="player" controls preload="metadata" style="width:100%;margin-top:28px"></audio>
+    <div class="controls">
+      <div class="ctlrow">
+        <div class="field">
+          <span class="lbl">Faixa</span>
+          <div class="ctl">
+            <input type="hidden" id="track" value="mix">
+            <span class="seg" id="trackSeg" role="group" aria-label="Faixa">
+              <button type="button" data-track="mix" title="Música original" aria-label="Música original">🎵</button>
+              <button type="button" data-track="bass" title="Só o baixo" aria-label="Só o baixo">🎸</button>
+              <button type="button" data-track="no_bass" title="Sem o baixo (para tocar junto)" aria-label="Sem o baixo"><span class="nodrum">🎸</span></button>
+            </span>
+          </div>
+        </div>
+        <div class="field">
+          <span class="lbl" title="Tablatura para baixo de 4 (Mi-Lá-Ré-Sol) ou de 5 cordas (Si grave)">Cordas</span>
+          <div class="ctl">
+            <span class="seg" id="stringsSeg" role="group" aria-label="Número de cordas do baixo">
+              <button type="button" data-s="4" title="Baixo de 4 cordas (E A D G)">4</button>
+              <button type="button" data-s="5" title="Baixo de 5 cordas (B E A D G)">5</button>
+            </span>
+          </div>
+        </div>
+        <div class="field">
+          <label class="lbl" for="speed">Velocidade</label>
+          <div class="ctl">
+            <select id="speed">
+              <option value="0.5">50%</option><option value="0.65">65%</option>
+              <option value="0.8">80%</option><option value="0.9">90%</option>
+              <option value="1" selected>100%</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label class="lbl" for="countdown" title="Compassos de metrônomo antes de a música começar">Contagem</label>
+          <div class="ctl">
+            <select id="countdown">
+              <option value="0">Sem</option><option value="1">1 compasso</option>
+              <option value="2">2 compassos</option><option value="4">4 compassos</option>
+            </select>
+          </div>
+        </div>
+        <div class="field grow">
+          <span class="lbl" title="Atalho: tecla M liga/desliga">Metrônomo</span>
+          <div class="ctl">
+            <span class="seg" id="metroSeg" role="group" aria-label="Metrônomo">
+              <button type="button" data-m="off" title="Desligado" aria-label="Metrônomo desligado" style="font-size:.85rem">off</button>
+              <button type="button" data-m="4" title="Em semínimas (só os tempos)" aria-label="Metrônomo em semínimas">♩</button>
+              <button type="button" data-m="8" title="Em colcheias" aria-label="Metrônomo em colcheias">♪</button>
+              <button type="button" data-m="16" title="Em semicolcheias" aria-label="Metrônomo em semicolcheias">♬</button>
+            </span>
+            <span class="seg" id="metroGrid" role="group" aria-label="Andamento do metrônomo">
+              <button type="button" data-g="song" title="Segue os tempos detectados na gravação" style="font-size:.8rem">música</button>
+              <button type="button" data-g="fixed" title="Andamento constante no BPM escolhido" style="font-size:.8rem">fixo</button>
+            </span>
+            <span id="bpmBox" class="ctl" style="gap:4px" hidden>
+              <button type="button" id="bpmDown" class="sm ghost" aria-label="Diminuir BPM">−</button>
+              <input type="number" id="metroBpm" min="30" max="300" step="1" style="width:4.5em" aria-label="BPM do metrônomo">
+              <button type="button" id="bpmUp" class="sm ghost" aria-label="Aumentar BPM">+</button>
+              <span class="muted small">BPM</span>
+            </span>
+            <label class="muted small" title="Volume do metrônomo (acima de 100% passa por um limitador)">vol
+              <input type="range" id="metroVol" min="0" max="4" step="0.1" value="1" style="width:84px;accent-color:var(--accent);vertical-align:middle"
+                aria-label="Volume do metrônomo"></label>
+            <span id="metroVolTxt" class="muted small" style="min-width:3.2em">100%</span>
+            <label class="muted small" title="Posição do clique entre esquerda e direita (duplo clique centraliza)">E
+              <input type="range" id="metroPan" min="-1" max="1" step="0.1" value="0" style="width:72px;accent-color:var(--accent);vertical-align:middle"
+                aria-label="Pan do metrônomo"> D</label>
+          </div>
+        </div>
+      </div>
+      <div class="ctlrow">
+        <div class="field">
+          <label class="lbl" for="goto">Ir para compasso</label>
+          <div class="ctl"><input type="number" id="goto" min="1" value="1" style="width:5em">
+            <button id="gotoBtn" class="sm">Ir</button></div>
+        </div>
+        <div class="field">
+          <span class="lbl">Acompanhar</span>
+          <div class="ctl"><label><input type="checkbox" id="follow" checked>seguir o cursor</label></div>
+        </div>
+        <div class="field">
+          <span class="lbl">Repetir trecho</span>
+          <div class="ctl">
+            <input type="number" id="loopA" min="1" style="width:4.5em" aria-label="Compasso inicial">
+            <button id="markA" class="sm ghost" title="Usa o compasso atual como início">marcar</button>
+            <span class="muted">até</span>
+            <input type="number" id="loopB" min="1" style="width:4.5em" aria-label="Compasso final">
+            <button id="markB" class="sm ghost" title="Usa o compasso atual como fim">marcar</button>
+            <label style="margin-left:4px"><input type="checkbox" id="loopOn">repetir</label>
+          </div>
+        </div>
+        <div class="field">
+          <label class="lbl" for="offset" title="Se o cursor estiver adiantado (+) ou atrasado (−) em relação ao som">Ajuste de sincronia</label>
+          <div class="ctl"><input type="number" id="offset" value="0" step="10" style="width:5.5em"> <span class="muted">ms</span></div>
+        </div>
+      </div>
+    </div>
+    <div id="now" class="status-line"></div>
+
+    <div id="partsBox" class="parts" hidden>
+      <div class="partsbar">
+        <span class="lbl" title="Detectadas automaticamente pela harmonia, pelo volume e pelo groove. Clique para ir até a parte.">Partes</span>
+        <span id="partsList" class="partslist"></span>
+        <button id="partsEditBtn" type="button" class="sm ghost" hidden>✎ Editar partes</button>
+      </div>
+      <div id="partsEditor" hidden>
+        <p class="muted small" style="margin:8px 0">Cada parte começa no compasso indicado e vai até a próxima.</p>
+        <div id="partsRows" class="stack"></div>
+        <datalist id="partNames">
+          <option value="Intro"><option value="Verso 1"><option value="Verso 2"><option value="Verso 3">
+          <option value="Pré-refrão"><option value="Refrão"><option value="Ponte"><option value="Solo">
+          <option value="Interlúdio"><option value="Final">
+        </datalist>
+        <div class="row" style="margin-top:10px">
+          <button id="partsAdd" type="button" class="sm">+ Parte no compasso atual</button>
+          <button id="partsSave" type="button" class="sm primary">Salvar</button>
+          <button id="partsCancel" type="button" class="sm ghost">Cancelar</button>
+          <button id="partsReset" type="button" class="sm ghost" hidden title="Descarta as correções">Voltar às automáticas</button>
+          <span id="partsMsg" class="small" style="color:var(--err)"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="scorebar">
+      <h2>Partitura</h2>
+      <div class="pager">
+        <button id="prev" class="sm" aria-label="Página anterior">←</button>
+        <span id="range" class="muted small"></span>
+        <button id="next" class="sm" aria-label="Próxima página">→</button>
+      </div>
+      <button id="fsBtn" class="sm" title="Partitura em tela cheia, com a trilha no rodapé (atalho: F)">⛶ Tela cheia</button>
+      <div class="row" id="downloads">
+        <span class="muted small" style="margin-right:4px">Baixar</span>
+        <a class="btn sm" id="dlAudio" href="#" download>Áudio</a>
+        <button id="dlPdf" class="sm" title="Gera um PDF com a partitura inteira">PDF</button>
+        <a class="btn sm" id="dlXml" href="#" download>MusicXML</a>
+        <span id="dlMsg" class="muted small"></span>
+      </div>
+    </div>
+    <div id="score"><div id="osmd"></div></div>
+
+    <section id="chordSec" hidden>
+      <div class="scorebar">
+        <h2>Cifra</h2>
+        <span id="keyInfo" class="muted small"></span>
+      </div>
+      <p class="muted small" style="margin-top:-6px">Um quadro por compasso; clique para ir até ele. Acordes estimados pela harmonia da música sem o baixo.</p>
+      <div id="chart"></div>
+    </section>
+  </div>
+</main>
+
+<div id="fs" hidden role="dialog" aria-label="Partitura em tela cheia">
+  <div class="fs-top">
+    <h2 id="fsTitle"></h2>
+    <span id="fsPager"></span>
+    <span id="fsNow" class="muted small"></span>
+    <button id="fsExit" class="sm" title="Sair da tela cheia (Esc)">✕ Sair</button>
+  </div>
+  <div id="fsBody"></div>
+  <div class="fs-foot">
+    <div id="fsNext" class="fs-next" aria-live="polite"></div>
+    <span id="fsAudio" style="display:contents"></span>
+    <span class="grp"><span class="lbl">Faixa</span><span id="fsTrack"></span></span>
+    <span class="grp"><span class="lbl">Cordas</span><span id="fsStrings"></span></span>
+    <span class="grp"><span class="lbl">Metrônomo</span><span id="fsMetro"></span></span>
+    <span class="grp"><span class="lbl">Velocidade</span><span id="fsSpeed"></span></span>
+  </div>
+</div>
+
+<script src="__BASE__/static/auth.js" data-base="__BASE__" data-ks="/kicksnare"></script>
+<script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.9.0/build/opensheetmusicdisplay.min.js"></script>
+<script>
+const BASE = "__BASE__";
+const id = decodeURIComponent((location.pathname.match(/\/songs\/([^/]+)/) || [])[1] || "");
+const $ = (s) => document.querySelector(s);
+const PAGE = 16;
+let osmd = null, first = 1, totalBars = 0;
+let steps = null, timing = null, curIdx = -1, manualPage = false, fsOn = false;
+
+async function boot() {
+  const song = await (await fetch(`${BASE}/api/songs/${encodeURIComponent(id)}`)).json();
+  $("#title").textContent = song.title || id;
+  $("#renameBtn").hidden = !song.can_edit;
+  $("#chips").replaceChildren();
+  if (song.status !== "done") {
+    let txt = song.status === "error" ? "Erro: " + (song.error || "") : (song.message || "Processando…");
+    if (song.eta && song.status !== "error") {
+      const m = Math.round(song.eta.seconds / 60);
+      const quando = new Date(song.eta.finish_at * 1000).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+      const dur = song.eta.seconds < 45 ? "menos de 1 min" : `~${m} min`;
+      txt += (song.eta.queue_ahead ? ` · ${song.eta.queue_ahead} na frente na fila` : "") + ` · pronta em ${dur} (${quando})`;
+    }
+    $("#status").textContent = txt;
+    setTimeout(boot, 3000);
+    return;
+  }
+  $("#status").textContent = "";
+  $("#reprocessBtn").hidden = !song.can_edit;
+  const st = song.stats || {};
+  if (st.key) {
+    const c = document.createElement("span"); c.className = "chip"; c.textContent = "tom: " + st.key;
+    $("#chips").append(c);
+  }
+  if (!song.can_edit && song.owner) {
+    const c = document.createElement("span"); c.className = "chip"; c.textContent = "compartilhada por " + song.owner;
+    $("#chips").append(c);
+  }
+  window.songBpm = st.bpm_median;
+  totalBars = st.bars;
+  $("#metroBpm").value = store.get("metroBpm:" + id, String(Math.round(st.bpm_median) || 120));
+  $("#player").src = `${BASE}/api/songs/${encodeURIComponent(id)}/track/${($("#track") || {}).value || "mix"}.mp3`;
+  $("#ready").hidden = false;
+  await drawScore(true);
+  await initSync();
+  canEdit = !!song.can_edit;
+  await loadParts();
+  await loadChords();
+}
+
+// Partes (sinais de ensaio do MusicXML): acima das notas e em vermelho. O OSMD não tem opção de
+// cor para eles, então o texto e a moldura são pintados no SVG depois de cada desenho.
+const PART_COLOR = "#d32f2f";
+let markLabels = new Set();
+const partLabels = (xml) => new Set([...xml.matchAll(/<rehearsal[^>]*>([^<]+)<\/rehearsal>/g)]
+  .map((m) => new DOMParser().parseFromString(m[1], "text/html").documentElement.textContent.trim()));
+function styleParts(o, size = 14) {
+  o.EngravingRules.RehearsalMarkFontSize = size;
+  o.EngravingRules.RehearsalMarkYOffset = 28;      // positivo sobe: livra pratos e chimbal acima da pauta
+}
+function colorParts(root, labels = markLabels) {
+  if (!labels.size) return;
+  for (const t of root.querySelectorAll("svg text")) {
+    if (!labels.has(t.textContent.trim())) continue;
+    t.setAttribute("fill", PART_COLOR);
+    // a moldura é desenhada logo antes do texto (rect, ou path conforme o contexto SVG)
+    let box = t.previousElementSibling;
+    for (let k = 0; box && k < 2; k++, box = box.previousElementSibling) {
+      if (/^(rect|path)$/i.test(box.tagName)) { box.setAttribute("stroke", PART_COLOR); break; }
+    }
+  }
+}
+
+async function drawScore(reload) {
+  const holder = $("#osmd");
+  if (!osmd) {
+    osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(holder, { autoResize: true, drawTitle: false, drawSubtitle: false, drawComposer: false, drawPartNames: false,
+      autoBeam: true, cursorsOptions: [{ type: 0, color: "#a16207", alpha: 0.5, follow: false }] });
+    styleParts(osmd);
+    styleChords(osmd);
+    // o autoResize redesenha por conta própria: a cor das partes vai junto em todo render
+    const render = osmd.render.bind(osmd);
+    osmd.render = () => { render(); colorParts(holder); };
+  }
+  if (reload) {
+    const xml = await (await fetch(scoreUrl())).text();
+    markLabels = partLabels(xml);
+    await osmd.load(xml);
+  }
+  const last = Math.min(first + PAGE - 1, totalBars);
+  osmd.setOptions({ drawFromMeasureNumber: first, drawUpToMeasureNumber: last });
+  osmd.render();
+  $("#range").textContent = `compassos ${first}–${last} de ${totalBars}`;
+  $("#prev").disabled = first <= 1; $("#next").disabled = last >= totalBars;
+  curIdx = -1;
+  if (steps) syncCursor(true);
+}
+$("#prev").onclick = () => { first = Math.max(1, first - PAGE); manualPage = true; drawScore(false); };
+$("#next").onclick = () => { first += PAGE; manualPage = true; drawScore(false); };
+
+// ---------- cordas (tablatura de 4 ou 5) ----------
+const strings = () => store.get("strings", "4");
+const scoreUrl = (n = strings()) => `${BASE}/api/songs/${encodeURIComponent(id)}/score.musicxml?strings=${n}&t=${Date.now()}`;
+function paintStrings() {
+  for (const b of document.querySelectorAll("#stringsSeg button")) b.setAttribute("aria-pressed", String(b.dataset.s === strings()));
+}
+for (const b of document.querySelectorAll("#stringsSeg button")) {
+  b.onclick = async () => {
+    if (b.dataset.s === strings()) return;
+    store.set("strings", b.dataset.s); paintStrings();
+    $("#dlXml").href = `${BASE}/api/songs/${encodeURIComponent(id)}/score.musicxml?strings=${strings()}&download=1`;
+    await drawScore(true);                  // mesmo ritmo e mesmas notas: o cursor continua valendo
+  };
+}
+
+// cifra no padrão brasileiro (o OSMD usa nomes próprios e ignora o texto do MusicXML)
+function styleChords(o) {
+  const E = opensheetmusicdisplay.ChordSymbolEnum, r = o.EngravingRules;
+  if (!E || !r.setChordSymbolLabelText) return;
+  r.setChordSymbolLabelText(E.majorseventh, "7M");
+  r.setChordSymbolLabelText(E.minorseventh, "m7");
+  r.setChordSymbolLabelText(E.diminished, "°");
+  r.setChordSymbolLabelText(E.suspendedfourth, "sus4");
+}
+
+// ---------- vista de cifra: um quadro por compasso, agrupado pelas partes ----------
+let chart = null;
+async function loadChords() {
+  const r = await fetch(`${BASE}/api/songs/${encodeURIComponent(id)}/chords`);
+  if (!r.ok) return;
+  chart = await r.json();
+  $("#keyInfo").textContent = chart.key ? "Tom: " + chart.key : "";
+  renderChart();
+  $("#chordSec").hidden = false;
+}
+function renderChart() {
+  if (!chart) return;
+  const out = [];
+  const starts = new Map((parts.length ? parts : chart.sections || []).map((p) => [p.bar, p.label]));
+  let row = null, last = "";
+  for (const b of chart.bars) {
+    if (starts.has(b.bar) || !row) {
+      const h = document.createElement("h3"); h.className = "chartpart"; h.textContent = starts.get(b.bar) || "";
+      row = document.createElement("div"); row.className = "chartrow";
+      out.push(h, row);
+    }
+    const cell = document.createElement("button"); cell.type = "button"; cell.className = "bar"; cell.dataset.bar = b.bar;
+    const n = document.createElement("span"); n.className = "n"; n.textContent = b.bar;
+    const labels = b.chords.map((c) => c.label);
+    // compasso sem troca repete o acorde que vinha soando
+    const txt = labels.length ? labels.join("  ") : (last ? "%" : "");
+    if (labels.length) last = labels[labels.length - 1];
+    const c = document.createElement("span"); c.className = "c"; c.textContent = txt;
+    cell.title = `Compasso ${b.bar}` + (labels.length ? "" : last ? ` (${last})` : "");
+    cell.append(n, c);
+    cell.onclick = () => { if (timing) { audio.currentTime = barStartTime(b.bar) + offsetSec(); syncCursor(true); } };
+    row.append(cell);
+  }
+  $("#chart").replaceChildren(...out);
+  markChartBar(shownBar || 1);
+}
+function markChartBar(bar) {
+  const prev = document.querySelector("#chart .bar.cur");
+  if (prev && prev.dataset.bar == bar) return;
+  if (prev) prev.classList.remove("cur");
+  const el = document.querySelector(`#chart .bar[data-bar="${bar}"]`);
+  if (el) el.classList.add("cur");
+}
+
+// ---------- sincronia: áudio <-> cursor ----------
+const audio = $("#player");
+const store = {
+  get(k, d) { try { return localStorage.getItem("gb:" + k) ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("gb:" + k, v); } catch {} },
+};
+
+async function initSync() {
+  // 2ª instância do OSMD, sem renderizar: dá todos os passos da partitura inteira
+  const xml = await (await fetch(scoreUrl())).text();
+  const probe = new opensheetmusicdisplay.OpenSheetMusicDisplay(document.createElement("div"), {});
+  await probe.load(xml);
+  const it = probe.Sheet.MusicPartManager.getIterator();
+  steps = [];
+  while (!it.EndReached) {
+    steps.push({ q: it.CurrentSourceTimestamp.RealValue * 4, m: it.CurrentMeasureIndex });
+    it.moveToNext();
+  }
+  timing = await (await fetch(`${BASE}/api/songs/${encodeURIComponent(id)}/timing`)).json();
+  $("#offset").value = store.get("offset:" + id, "0");
+  $("#loopA").max = $("#loopB").max = $("#goto").max = totalBars;
+  syncCursor(true);
+}
+
+// posição em beats (a partir do início da partitura) para um instante do áudio
+function timeToQ(t) {
+  const b = timing.beats;
+  if (t <= b[0]) return 0;
+  if (t >= b[b.length - 1]) return b.length - 1;
+  let lo = 0, hi = b.length - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (b[mid] <= t) lo = mid; else hi = mid; }
+  return lo + (t - b[lo]) / (b[lo + 1] - b[lo]);
+}
+function barAtQ(q) {   // compasso (1-based) que contém a posição q
+  let acc = 0;
+  for (const bar of timing.bars) { acc += bar.beats; if (q < acc) return bar.n; }
+  return timing.bars.length;
+}
+function stepIndexAt(q) {
+  let lo = 0, hi = steps.length - 1;
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (steps[mid].q <= q + 1e-6) lo = mid; else hi = mid - 1; }
+  return lo;
+}
+const offsetSec = () => (parseFloat($("#offset").value) || 0) / 1000;
+const curTime = () => audio.currentTime - offsetSec();
+const barStartTime = (n) => timing.bars[Math.min(Math.max(n, 1), timing.bars.length) - 1].start;
+const barAtTime = (t) => { let n = 1; for (const b of timing.bars) { if (b.start <= t + 0.001) n = b.n; else break; } return n; };
+const barEndTime = (n) => n >= timing.bars.length ? timing.beats[timing.beats.length - 1] : timing.bars[n].start;
+
+function syncCursor(force) {
+  if (!steps || !osmd) return;
+  const q = timeToQ(curTime());
+  const idx = stepIndexAt(q);
+  const bar = steps[idx].m + 1;
+  showPart(bar);
+  if (idx === curIdx && !force) return;
+
+  const last = Math.min(first + PAGE - 1, totalBars);
+  if ((bar < first || bar > last) && $("#follow").checked) {
+    first = Math.floor((bar - 1) / PAGE) * PAGE + 1;
+    drawScore(false);          // redesenha e volta aqui com force
+    return;
+  }
+  if (bar < first || bar > last) return;   // "seguir" desligado: cursor fora da página
+
+  const cur = osmd.cursor;
+  if (curIdx >= 0 && idx > curIdx && idx - curIdx <= 8 && !force) {
+    for (let i = curIdx; i < idx; i++) cur.next();
+  } else {
+    cur.show(); cur.reset();
+    const it = cur.iterator, target = steps[idx].q;
+    while (!it.EndReached && it.CurrentSourceTimestamp.RealValue * 4 < target - 1e-6) it.moveToNext();
+    cur.update();
+  }
+  curIdx = idx;
+  scrollToCursor();
+}
+
+// rolagem automática: mantém o cursor à vista; não briga com quem rola à mão
+let lastUserScroll = 0;
+for (const ev of ["wheel", "touchmove"]) window.addEventListener(ev, () => { lastUserScroll = Date.now(); }, { passive: true });
+window.addEventListener("keydown", (e) => {
+  if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End"].includes(e.code)) lastUserScroll = Date.now();
+});
+function scrollToCursor() {
+  if (!$("#follow").checked || Date.now() - lastUserScroll < 4000) return;
+  const el = document.querySelector('#score img[id^="cursor"]');
+  if (!el) return;
+  const r = el.getBoundingClientRect();
+  if (fsOn) {                                     // tela cheia: rola a área da partitura, não a janela
+    const box = $("#fsBody"), b = box.getBoundingClientRect(), margin = Math.min(100, b.height * 0.2);
+    if (r.top < b.top + margin || r.bottom > b.bottom - margin) {
+      box.scrollTo({ top: box.scrollTop + r.top - b.top - b.height * 0.3, behavior: "smooth" });
+    }
+    return;
+  }
+  const margin = 140;
+  if (r.top < margin || r.bottom > window.innerHeight - margin) {
+    window.scrollTo({ top: window.scrollY + r.top - window.innerHeight * 0.35, behavior: "smooth" });
+  }
+}
+
+function tick() {
+  if (timing && $("#loopOn").checked) {
+    const a = parseInt($("#loopA").value), b = parseInt($("#loopB").value);
+    if (a >= 1 && b >= a && curTime() >= barEndTime(b) - 0.005) {
+      audio.currentTime = barStartTime(a) + offsetSec();
+    }
+  }
+  syncCursor(false);
+  if (!audio.paused) requestAnimationFrame(tick);
+}
+audio.addEventListener("play", () => requestAnimationFrame(tick));
+
+// ---------- contagem regressiva em compassos, com click de metrônomo ----------
+let counting = null, skipCountdown = false;
+function cancelCountdown() {
+  if (!counting) return;
+  clearTimeout(counting.end); counting.ticks.forEach(clearTimeout); counting.el.remove(); counting = null;
+}
+function playNow() { skipCountdown = true; return audio.play().finally(() => { skipCountdown = false; }); }
+function click(accent, when) { metroClick(when, accent ? 0 : 1); }   // mesmo som/volume/pan do metrônomo
+// compasso do ponto de partida: nº de tempos e duração de cada um (ajustada pela velocidade)
+function countInBar() {
+  let beats = 4, barSec = null;
+  if (timing && timing.bars && timing.bars.length) {
+    const n = Math.min(Math.max(barAtTime(curTime()), 1), timing.bars.length);
+    beats = timing.bars[n - 1].beats || 4;
+    barSec = barEndTime(n) - barStartTime(n);
+  }
+  if (!(barSec > 0.2)) barSec = beats * 60 / ((window.songBpm || 100));
+  return { beats, beatSec: barSec / beats / (audio.playbackRate || 1) };
+}
+// Atraso entre audio.play() e o som começar de fato (busca + decodificação); medido a cada início
+// e usado para disparar o play antes, de modo que o tempo 1 caia logo depois do último clique.
+let startLag = 0.15;
+function measureStartLag(pos, calledAt) {
+  const rate = audio.playbackRate || 1;
+  const poll = () => {
+    if (audio.paused) return;
+    const moved = audio.currentTime - pos;
+    if (moved <= 0.001) { requestAnimationFrame(poll); return; }
+    const lag = (performance.now() - calledAt) / 1000 - moved / rate;
+    if (lag > 0 && lag < 1) startLag = Math.min(0.5, Math.max(0.02, 0.5 * startLag + 0.5 * lag));
+  };
+  requestAnimationFrame(poll);
+}
+audio.addEventListener("play", () => {
+  const bars = parseInt($("#countdown").value) || 0;
+  if (skipCountdown || !bars || counting) return;
+  audio.pause();                           // segura o áudio; o play de verdade vem no fim da contagem
+  // a música entra no tempo 1 do compasso atual (e não no meio dele, ou no silêncio antes do 1º tempo)
+  let target = null;
+  if (timing && timing.bars && timing.bars.length) target = Math.max(0, barStartTime(barAtTime(curTime() + 0.05)) + offsetSec());
+  const { beats, beatSec } = countInBar();
+  metroEnsure();
+  const el = document.createElement("div");
+  el.style.cssText = "position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;" +
+    "font:700 18vmin/1 system-ui,sans-serif;color:#fff;background:rgba(0,0,0,.55);z-index:60;cursor:pointer";
+  el.title = "Clique para cancelar";
+  const big = document.createElement("div"), sub = document.createElement("div");
+  sub.style.cssText = "font:600 4vmin/1.4 system-ui,sans-serif;opacity:.8";
+  // na tela cheia nativa só o #fs aparece: a contagem precisa estar dentro dele
+  el.append(big, sub); (fsOn ? $("#fs") : document.body).append(el);
+  el.onclick = cancelCountdown;
+  const total = bars * beats, t0 = metroCtx.currentTime + 0.1, ticks = [];
+  for (let i = 0; i < total; i++) {
+    click(i % beats === 0, t0 + i * beatSec);
+    ticks.push(setTimeout(() => {          // número do tempo + compasso restante, em sincronia com o click
+      big.textContent = (i % beats) + 1;
+      sub.textContent = `compasso ${Math.floor(i / beats) + 1} de ${bars}`;
+    }, 100 + i * beatSec * 1000));
+  }
+  // o play sai `startLag` antes do tempo 1 (que soa junto com onde seria o próximo clique); a busca
+  // acontece já agora, durante a contagem, para o áudio estar carregado na hora
+  const rate = audio.playbackRate || 1;
+  const heard = t0 + total * beatSec + (metroCtx.outputLatency || 0) + (metroCtx.baseLatency || 0);
+  if (target === null) target = audio.currentTime;
+  const pos = Math.max(0, target - startLag * rate);
+  audio.currentTime = pos;
+  // som começa startLag depois do play, em `pos`; chega em `target` (tempo 1) no instante `heard`
+  const callAt = heard - startLag - (target - pos) / rate;
+  counting = { el, ticks, end: setTimeout(() => {
+    cancelCountdown();
+    const calledAt = performance.now();
+    playNow().then(() => measureStartLag(pos, calledAt)).catch(() => {});
+  }, Math.max(0, (callAt - metroCtx.currentTime) * 1000)) };
+});
+$("#countdown").value = store.get("countdown", "0");
+$("#countdown").onchange = () => store.set("countdown", $("#countdown").value);
+for (const ev of ["seeked", "timeupdate", "pause"]) audio.addEventListener(ev, () => syncCursor(false));
+
+$("#speed").onchange = () => { audio.playbackRate = parseFloat($("#speed").value); store.set("speed", $("#speed").value); };
+$("#offset").onchange = () => { store.set("offset:" + id, $("#offset").value); curIdx = -1; syncCursor(true); };
+$("#gotoBtn").onclick = () => {
+  const n = Math.min(Math.max(parseInt($("#goto").value) || 1, 1), totalBars);
+  audio.currentTime = barStartTime(n) + offsetSec();
+};
+const currentBar = () => steps[stepIndexAt(timeToQ(curTime()))].m + 1;
+$("#markA").onclick = () => { $("#loopA").value = currentBar(); if (!$("#loopB").value) $("#loopB").value = currentBar(); };
+$("#markB").onclick = () => { $("#loopB").value = currentBar(); if (!$("#loopA").value) $("#loopA").value = currentBar(); };
+document.addEventListener("keydown", (e) => {
+  if (e.code !== "Space" || /INPUT|SELECT|TEXTAREA|BUTTON/.test(document.activeElement.tagName)) return;
+  e.preventDefault();
+  if (counting) { cancelCountdown(); return; }
+  audio.paused ? audio.play() : audio.pause();
+});
+$("#follow").onchange = () => syncCursor(true);
+
+// ---------- partes da música (Intro, Verso, Refrão...) ----------
+let parts = [], partsEdited = false, canEdit = false, shownBar = 0;
+const partAt = (bar) => { let p = null; for (const x of parts) { if (x.bar <= bar) p = x; else break; } return p; };
+const partAfter = (bar) => parts.find((x) => x.bar > bar) || null;
+
+async function loadParts() {
+  try {
+    const r = await fetch(`${BASE}/api/songs/${encodeURIComponent(id)}/sections`);
+    if (!r.ok) return;
+    const d = await r.json();
+    parts = d.sections || []; partsEdited = !!d.edited;
+  } catch { return; }
+  renderParts();
+}
+
+function renderParts() {
+  $("#partsBox").hidden = !parts.length && !canEdit;
+  $("#partsEditBtn").hidden = !canEdit;
+  const cur = partAt(shownBar || 1);
+  $("#partsList").replaceChildren(...parts.map((p) => {
+    const b = document.createElement("button"); b.type = "button";
+    if (cur && p.bar === cur.bar) b.className = "cur";
+    const n = document.createElement("span"); n.className = "n"; n.textContent = p.bar;
+    b.append(n, p.label);
+    b.title = `Ir para o compasso ${p.bar}`;
+    b.onclick = () => { if (timing) { audio.currentTime = barStartTime(p.bar) + offsetSec(); syncCursor(true); } };
+    return b;
+  }));
+  showPart(shownBar || 1, true);
+}
+
+// linha de status ("compasso 23 · Verso 1") e, na tela cheia, o aviso da próxima parte
+function showPart(bar, force) {
+  if (bar === shownBar && !force) return;
+  const moved = partAt(bar) !== partAt(shownBar);
+  shownBar = bar;
+  const cur = partAt(bar), next = partAfter(bar);
+  $("#now").textContent = $("#fsNow").textContent = `compasso ${bar}` + (cur ? ` · ${cur.label}` : "");
+  const box = $("#fsNext");
+  box.replaceChildren();
+  box.classList.remove("soon");
+  if (next) {
+    const left = next.bar - bar;
+    const b = document.createElement("b"); b.textContent = next.label;
+    box.append("Próxima parte: ", b, ` · em ${left} compasso${left > 1 ? "s" : ""} (compasso ${next.bar})`);
+    if (left <= 2) box.classList.add("soon");
+  } else if (cur) {
+    box.append(`Última parte: ${cur.label}`);
+  }
+  if (moved && !force) renderParts();            // destaca a parte atual na lista
+  markChartBar(bar);
+}
+
+function partRow(p) {
+  const row = document.createElement("div"); row.className = "partrow";
+  const bar = document.createElement("input"); bar.type = "number"; bar.min = 1; bar.max = totalBars; bar.value = p.bar;
+  bar.setAttribute("aria-label", "Compasso de início");
+  const label = document.createElement("input"); label.type = "text"; label.maxLength = 40; label.value = p.label;
+  label.setAttribute("list", "partNames"); label.setAttribute("aria-label", "Nome da parte");
+  const del = document.createElement("button"); del.type = "button"; del.className = "sm ghost"; del.textContent = "✕";
+  del.title = "Remover esta parte"; del.onclick = () => row.remove();
+  const pre = document.createElement("span"); pre.className = "muted small"; pre.textContent = "compasso";
+  row.append(pre, bar, label, del);
+  return row;
+}
+$("#partsEditBtn").onclick = () => {
+  $("#partsRows").replaceChildren(...parts.map(partRow));
+  $("#partsReset").hidden = !partsEdited; $("#partsMsg").textContent = "";
+  $("#partsEditor").hidden = false; $("#partsEditBtn").hidden = true;
+};
+$("#partsCancel").onclick = () => { $("#partsEditor").hidden = true; $("#partsEditBtn").hidden = !canEdit; };
+$("#partsAdd").onclick = () => {
+  const row = partRow({ bar: steps && timing ? currentBar() : 1, label: "" });
+  $("#partsRows").append(row); row.querySelector("input[type=text]").focus();
+};
+async function saveParts(method, body) {
+  $("#partsMsg").textContent = "";
+  const url = `${BASE}/api/songs/${encodeURIComponent(id)}/sections` + (method === "DELETE" ? "/manual" : "");
+  const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  if (!r.ok) { let d = r.statusText; try { d = (await r.json()).detail || d; } catch {} $("#partsMsg").textContent = d; return; }
+  const d = await r.json();
+  parts = d.sections || []; partsEdited = !!d.edited;
+  $("#partsEditor").hidden = true;
+  renderParts(); renderChart();
+  await drawScore(true);                         // a partitura foi regravada com as novas marcações
+}
+$("#partsSave").onclick = () => {
+  const items = [...$("#partsRows").children].map((row) => ({
+    bar: parseInt(row.querySelector("input[type=number]").value), label: row.querySelector("input[type=text]").value.trim(),
+  }));
+  if (items.some((p) => !p.label || !(p.bar >= 1))) { $("#partsMsg").textContent = "Preencha o compasso e o nome de cada parte."; return; }
+  saveParts("PUT", { sections: items });
+};
+$("#partsReset").onclick = () => saveParts("DELETE");
+
+// ---------- metrônomo ----------
+// Cliques agendados no Web Audio a partir da grade de tempos detectada (timing.beats), então
+// acompanham as variações de andamento da gravação. Tempo 1 do compasso mais agudo, subdivisões mais suaves.
+let metroCtx = null, metroFrom = null, metroLast = "4";
+const metroMode = () => (document.querySelector('#metroSeg button[aria-pressed="true"]') || {}).dataset?.m || "off";
+function metroDownbeats() {
+  if (!timing.downbeats) {
+    const s = new Set(); let acc = 0;
+    for (const bar of timing.bars) { s.add(Math.round(acc)); acc += bar.beats; }
+    timing.downbeats = s;
+  }
+  return timing.downbeats;
+}
+// compasso mais comum da música e o início do 1º compasso com esse tamanho
+function metroFixedAnchor() {
+  if (!timing.fixedAnchor) {
+    const count = {};
+    for (const bar of timing.bars) count[bar.beats] = (count[bar.beats] || 0) + 1;
+    const bpb = +Object.keys(count).sort((x, y) => count[y] - count[x])[0] || 4;
+    const bar = timing.bars.find((x) => x.beats === bpb) || timing.bars[0];
+    timing.fixedAnchor = { bpb, at: bar ? bar.start : timing.beats[0] };
+  }
+  return timing.fixedAnchor;
+}
+// cliques → volume geral → pan → limitador → saída (o limitador deixa passar de 100% sem distorcer)
+let metroBus = null, metroPanner = null;
+function metroEnsure() {
+  if (!metroCtx) {
+    metroCtx = new (window.AudioContext || window.webkitAudioContext)();
+    metroBus = metroCtx.createGain();
+    metroPanner = metroCtx.createStereoPanner();
+    const lim = metroCtx.createDynamicsCompressor();
+    lim.threshold.value = -3; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.001; lim.release.value = 0.05;
+    metroBus.connect(metroPanner).connect(lim).connect(metroCtx.destination);
+    metroApply();
+  }
+  metroCtx.resume();
+}
+function metroApply() {
+  const v = parseFloat($("#metroVol").value), p = parseFloat($("#metroPan").value);
+  $("#metroVolTxt").textContent = Math.round(v * 100) + "%";
+  if (!metroCtx) return;
+  metroBus.gain.setTargetAtTime(v, metroCtx.currentTime, 0.01);
+  metroPanner.pan.setTargetAtTime(p, metroCtx.currentTime, 0.01);
+}
+function metroClick(at, level) {   // level 0 = tempo 1, 1 = tempo, 2 = subdivisão
+  const o = metroCtx.createOscillator(), g = metroCtx.createGain();
+  o.type = "triangle";
+  o.frequency.value = [1800, 1200, 800][level];
+  g.gain.setValueAtTime([1, 0.7, 0.4][level], at);
+  g.gain.exponentialRampToValueAtTime(0.0001, at + 0.045);
+  o.connect(g).connect(metroBus);
+  o.start(at); o.stop(at + 0.06);
+}
+function metroTick() {
+  const mode = metroMode();
+  if (!timing || !metroCtx || audio.paused || mode === "off") { metroFrom = null; return; }
+  const sub = { 4: 1, 8: 2, 16: 4 }[mode] || 1, rate = audio.playbackRate || 1;
+  const ctxNow = metroCtx.currentTime, mediaNow = audio.currentTime, horizon = mediaNow + 0.15 * rate;
+  if (metroFrom === null || metroFrom < mediaNow - 0.3) metroFrom = mediaNow;
+  const b = timing.beats, off = offsetSec();
+  const play = (t, level) => { if (t >= metroFrom && t < horizon && t > mediaNow - 0.02) metroClick(ctxNow + (t - mediaNow) / rate, level); };
+  const bpm = parseFloat($("#metroBpm").value);
+  if (metroGrid() === "fixed" && bpm >= 30 && bpm <= 300) {
+    // grade constante ancorada no tempo 1 do 1º compasso completo (o 1º compasso costuma ser
+    // anacruse); BPM em tempo da música (a velocidade escala junto)
+    const { bpb, at } = metroFixedAnchor(), a = at + off, step = 60 / bpm / sub;
+    const first = Math.ceil((Math.max(metroFrom, b[0] + off) - a) / step);
+    for (let n = first; a + n * step < horizon; n++) {
+      const beat = Math.floor(n / sub);
+      play(a + n * step, n % sub ? 2 : (((beat % bpb) + bpb) % bpb === 0 ? 0 : 1));
+    }
+  } else {
+    const down = metroDownbeats();
+    for (let i = Math.max(0, Math.floor(timeToQ(metroFrom - off)) - 1); i < b.length - 1; i++) {
+      const t0 = b[i] + off, step = (b[i + 1] - b[i]) / sub;
+      if (t0 >= horizon) break;
+      for (let k = 0; k < sub; k++) play(t0 + k * step, k ? 2 : (down.has(i) ? 0 : 1));
+    }
+  }
+  metroFrom = horizon;
+}
+function setMetro(mode) {
+  document.querySelectorAll("#metroSeg button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.m === mode)));
+  if (mode !== "off") {
+    metroLast = mode;
+    metroEnsure();
+  }
+  metroFrom = null; store.set("metro", mode);
+}
+document.querySelectorAll("#metroSeg button").forEach((x) => x.onclick = () => setMetro(x.dataset.m));
+$("#metroVol").value = store.get("metroVol2", "1");
+$("#metroPan").value = store.get("metroPan", "0");
+$("#metroVol").oninput = () => { store.set("metroVol2", $("#metroVol").value); metroApply(); };
+$("#metroPan").oninput = () => { store.set("metroPan", $("#metroPan").value); metroApply(); };
+$("#metroPan").ondblclick = () => { $("#metroPan").value = 0; $("#metroPan").oninput(); };
+metroApply();
+const metroGrid = () => (document.querySelector('#metroGrid button[aria-pressed="true"]') || {}).dataset?.g || "song";
+function setGrid(g) {
+  document.querySelectorAll("#metroGrid button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.g === g)));
+  $("#bpmBox").hidden = g !== "fixed";
+  store.set("metroGrid", g); metroFrom = null;
+}
+document.querySelectorAll("#metroGrid button").forEach((x) => x.onclick = () => setGrid(x.dataset.g));
+setGrid(store.get("metroGrid", "song"));
+function setBpm(v) {
+  v = Math.min(300, Math.max(30, Math.round(v) || 120));
+  $("#metroBpm").value = v; store.set("metroBpm:" + id, v); metroFrom = null;
+}
+$("#metroBpm").onchange = () => setBpm(parseFloat($("#metroBpm").value));
+$("#bpmDown").onclick = () => setBpm(parseFloat($("#metroBpm").value) - 1);
+$("#bpmUp").onclick = () => setBpm(parseFloat($("#metroBpm").value) + 1);
+for (const ev of ["play", "seeked", "ratechange", "pause"]) audio.addEventListener(ev, () => {
+  metroFrom = null;
+  if (ev === "play" && metroCtx) metroCtx.resume();
+});
+$("#offset").addEventListener("change", () => { metroFrom = null; });
+document.addEventListener("keydown", (e) => {
+  if (e.code !== "KeyM" || e.ctrlKey || e.metaKey || e.altKey || /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
+  setMetro(metroMode() === "off" ? metroLast : "off");
+});
+setInterval(metroTick, 25);
+(() => {   // lembra a escolha, mas o áudio só pode nascer num gesto do usuário: cria no 1º play
+  const saved = store.get("metro", "off");
+  document.querySelectorAll("#metroSeg button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.m === saved)));
+  if (saved !== "off") {
+    metroLast = saved;
+    audio.addEventListener("play", metroEnsure);
+  }
+})();
+
+
+// ---------- faixa: original / só bateria / sem bateria ----------
+function setTrack(track, keepState) {
+  const a = $("#player");
+  const t = a.currentTime, wasPlaying = !a.paused, rate = a.playbackRate;
+  a.src = `${BASE}/api/songs/${encodeURIComponent(id)}/track/${track}.mp3`;
+  a.playbackRate = rate;
+  if (keepState) {
+    a.addEventListener("loadedmetadata", function once() {
+      a.removeEventListener("loadedmetadata", once);
+      a.currentTime = t; a.playbackRate = rate;
+      if (wasPlaying) { skipCountdown = true; a.play().catch(() => {}).finally(() => { skipCountdown = false; }); }
+    });
+  }
+  try { localStorage.setItem("gb:track", track); } catch {}
+}
+function syncSeg() {
+  const v = $("#track").value;
+  document.querySelectorAll("#trackSeg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.track === v)));
+}
+document.querySelectorAll("#trackSeg button").forEach((b) => b.onclick = () => {
+  const t = $("#track"); if (t.value === b.dataset.track) return;
+  t.value = b.dataset.track; syncSeg(); t.dispatchEvent(new Event("change"));
+});
+(function initTrack() {
+  let saved = "mix";
+  try { saved = localStorage.getItem("gb:track") || "mix"; } catch {}
+  const sel = $("#track"); if (!sel) return;
+  sel.value = saved; syncSeg();
+  sel.onchange = () => setTrack(sel.value, true);
+  if (saved !== "mix") setTrack(saved, false);
+})();
+
+// ---------- renomear ----------
+$("#renameBtn").onclick = () => {
+  $("#renameInput").value = $("#title").textContent;
+  $("#renameForm").hidden = false; $("#renameBtn").hidden = true; $("#renameMsg").textContent = "";
+  $("#renameInput").focus(); $("#renameInput").select();
+};
+$("#reprocessBtn").onclick = async () => {
+  if (!confirm("Transcrever esta música de novo com o algoritmo mais recente?\n\n" +
+               "Leva um ou dois minutos (o baixo já separado e as partes são mantidos).")) return;
+  const r = await fetch(`${BASE}/api/songs/${encodeURIComponent(id)}/reprocess`, { method: "POST" });
+  if (!r.ok) { let d = r.statusText; try { d = (await r.json()).detail || d; } catch {} alert(d); return; }
+  location.reload();
+};
+$("#renameCancel").onclick = () => { $("#renameForm").hidden = true; $("#renameBtn").hidden = false; };
+$("#renameForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const r = await fetch(`${BASE}/api/songs/${encodeURIComponent(id)}`, { method: "PATCH",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: $("#renameInput").value }) });
+  if (!r.ok) { let d = r.statusText; try { d = (await r.json()).detail || d; } catch {} $("#renameMsg").textContent = d; return; }
+  const song = await r.json();
+  $("#title").textContent = song.title; document.title = "GrooveBass · " + song.title;
+  $("#renameForm").hidden = true; $("#renameBtn").hidden = false;
+});
+
+// ---------- downloads ----------
+function refreshDownloadLinks() {
+  const track = ($("#track") || {}).value || "mix";
+  $("#dlAudio").href = `${BASE}/api/songs/${encodeURIComponent(id)}/track/${track}.mp3?download=1`;
+  $("#dlXml").href = `${BASE}/api/songs/${encodeURIComponent(id)}/score.musicxml?strings=${strings()}&download=1`;
+}
+$("#track").addEventListener("change", refreshDownloadLinks);
+refreshDownloadLinks();
+
+function loadScript(src) {
+  return new Promise((ok, fail) => {
+    const s = document.createElement("script"); s.src = src; s.onload = ok;
+    s.onerror = () => fail(new Error("não consegui carregar " + src)); document.head.append(s);
+  });
+}
+
+// PDF no navegador: o OSMD pagina em A4 retrato (SVG por página) e o svg2pdf converte cada página.
+async function exportPdf() {
+  const btn = $("#dlPdf"), msg = $("#dlMsg");
+  btn.disabled = true; msg.textContent = "Gerando PDF…";
+  const holder = document.createElement("div");
+  holder.style.cssText = "position:fixed;left:-99999px;top:0;width:1000px";
+  document.body.append(holder);
+  try {
+    if (!window.jspdf) await loadScript("https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js");
+    if (!(window.svg2pdf || (window.jspdf && window.jspdf.jsPDF.API.svg))) {
+      await loadScript("https://cdn.jsdelivr.net/npm/svg2pdf.js@2.2.3/dist/svg2pdf.umd.min.js");
+    }
+    const xml = await (await fetch(scoreUrl())).text();
+    const o = new opensheetmusicdisplay.OpenSheetMusicDisplay(holder, {
+      autoResize: false, pageFormat: "A4 P", drawTitle: false, drawSubtitle: false, drawComposer: false, drawPartNames: false,
+      drawingParameters: "default", autoBeam: true,
+    });
+    await o.load(xml);
+    o.zoom = 0.8;
+    // mais ar entre os sistemas (pautas) para facilitar a leitura no papel
+    const er = o.EngravingRules;
+    er.MinimumDistanceBetweenSystems = 16;
+    er.MinSkyBottomDistBetweenSystems = 12;
+    styleParts(o, 12);                                          // partes (Intro, Verso, Refrão...)
+    styleChords(o);
+    o.render();
+    colorParts(holder, partLabels(xml));
+    const svgs = [...holder.querySelectorAll("svg")];
+    if (!svgs.length) throw new Error("a partitura não gerou páginas");
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit: "pt", format: "a4", orientation: "portrait", compress: true });
+    const W = pdf.internal.pageSize.getWidth(), H = pdf.internal.pageSize.getHeight();
+    const M = 30, HEAD = 30;                                  // margem e faixa do título (só na 1ª página)
+    const title = ($("h1").textContent || "Partitura").trim();
+    for (let i = 0; i < svgs.length; i++) {
+      msg.textContent = `Gerando PDF… página ${i + 1} de ${svgs.length}`;
+      if (i > 0) pdf.addPage();
+      const vb = svgs[i].viewBox.baseVal;
+      const w = vb && vb.width ? vb.width : svgs[i].getBoundingClientRect().width;
+      const h = vb && vb.height ? vb.height : svgs[i].getBoundingClientRect().height;
+      const scale = Math.min((W - 2 * M) / w, (H - 2 * M - HEAD) / h);
+      await (window.svg2pdf.svg2pdf || window.svg2pdf)(svgs[i], pdf, {
+        x: M + ((W - 2 * M) - w * scale) / 2, y: M + HEAD, width: w * scale, height: h * scale });
+      pdf.setFont("helvetica", "normal"); pdf.setTextColor(90);
+      pdf.setFontSize(8); pdf.text(`GrooveBass · ${i + 1}/${svgs.length}`, W - M, H - 14, { align: "right" });
+    }
+    pdf.setPage(1); pdf.setTextColor(0);
+    let fs = 15; pdf.setFont("helvetica", "bold"); pdf.setFontSize(fs);
+    while (pdf.getTextWidth(title) > W - 2 * M && fs > 8) pdf.setFontSize(--fs);
+    pdf.text(title, W / 2, M + 12, { align: "center" });
+    const name = title.replace(/[\\/:*?"<>|]/g, " ").slice(0, 80) + " - partitura.pdf";
+    const buf = pdf.output("arraybuffer"); window.__lastPdf = { pages: svgs.length, bytes: buf.byteLength, buffer: buf };
+    pdf.save(name);
+    msg.textContent = `PDF gerado (${svgs.length} página${svgs.length > 1 ? "s" : ""}).`;
+  } catch (e) {
+    msg.textContent = "Não foi possível gerar o PDF: " + e.message;
+  } finally {
+    holder.remove(); btn.disabled = false;
+  }
+}
+$("#dlPdf").onclick = exportPdf;
+
+// ---------- tela cheia ----------
+// Leva para a camada #fs os próprios elementos da página (partitura, player, faixa, metrônomo,
+// velocidade e paginação) e os devolve ao sair: a sincronia, a contagem e o metrônomo seguem
+// funcionando sem duplicar nada. O player muda de lugar na mesma tarefa, então não pausa.
+const FS_MOVES = [["#score", "#fsBody"], [".pager", "#fsPager"], ["#player", "#fsAudio"],
+                  ["#trackSeg", "#fsTrack"], ["#stringsSeg", "#fsStrings"], ["#metroSeg", "#fsMetro"], ["#speed", "#fsSpeed"]];
+const fsHomes = [];
+function enterFs() {
+  if (fsOn || $("#ready").hidden) return;
+  fsOn = true;
+  $("#fsTitle").textContent = $("#title").textContent;
+  for (const [sel, dest] of FS_MOVES) {
+    const el = $(sel), mark = document.createComment("fs");
+    el.before(mark); fsHomes.push([el, mark]); $(dest).append(el);
+  }
+  $("#fs").hidden = false; document.body.classList.add("fs-on");
+  // tela cheia de verdade onde o navegador deixa; no iPhone fica a camada fixa ocupando a janela
+  const req = $("#fs").requestFullscreen || $("#fs").webkitRequestFullscreen;
+  if (req) Promise.resolve(req.call($("#fs"))).catch(() => {});
+  setTimeout(() => drawScore(false), 50);         // largura nova: redesenha e reposiciona o cursor
+}
+function exitFs() {
+  if (!fsOn) return;
+  fsOn = false;
+  for (const [el, mark] of fsHomes.splice(0)) { mark.replaceWith(el); }
+  $("#fs").hidden = true; document.body.classList.remove("fs-on");
+  if (document.fullscreenElement || document.webkitFullscreenElement) {
+    (document.exitFullscreen || document.webkitExitFullscreen).call(document).catch?.(() => {});
+  }
+  setTimeout(() => { drawScore(false); scrollToCursor(); }, 50);
+}
+$("#fsBtn").onclick = enterFs;
+$("#fsExit").onclick = exitFs;
+for (const ev of ["fullscreenchange", "webkitfullscreenchange"]) {
+  document.addEventListener(ev, () => { if (!document.fullscreenElement && !document.webkitFullscreenElement) exitFs(); });
+}
+document.addEventListener("keydown", (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey || /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
+  if (e.code === "KeyF") { e.preventDefault(); fsOn ? exitFs() : enterFs(); }
+  else if (e.code === "Escape" && fsOn) exitFs();   // camada sem tela cheia nativa (iPhone)
+});
+
+paintStrings();
+boot();
+</script>
+</body>
+</html>
