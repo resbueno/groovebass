@@ -335,6 +335,35 @@ function colorParts(root, labels = markLabels) {
   }
 }
 
+// Afinação na tablatura: o OSMD não escreve as notas das cordas, então as letras (lidas do
+// <staff-tuning> do MusicXML) são desenhadas no SVG à esquerda da chave, depois de cada render.
+let scoreXml = "";
+function tuningLabels(o, root, xml) {
+  const tun = [...xml.matchAll(/<staff-tuning[^>]*>\s*<tuning-step>([A-G])<\/tuning-step>/g)].map((m) => m[1]);   // linha 1 = corda mais grave
+  const svgs = [...root.querySelectorAll("svg")];
+  if (!tun.length || !svgs.length) return;
+  root.querySelectorAll("svg .tab-tuning").forEach((e) => e.remove());
+  const u = 10 * o.zoom, seen = new Set(), pages = o.GraphicSheet.MusicPages;
+  for (const col of o.GraphicSheet.MeasureList) {
+    const m = col[1], sl = m && m.isTabMeasure && m.ParentStaffLine;
+    // StaffLines guarda sempre 5 linhas; as desenhadas são StafflineCount, espalhadas por StaffHeight
+    const n = sl && sl.ParentStaff && sl.ParentStaff.StafflineCount;
+    if (!sl || seen.has(sl) || n !== tun.length) continue;
+    seen.add(sl);
+    const svg = svgs[Math.max(0, pages.indexOf(sl.parentMusicSystem.Parent))] || svgs[0];
+    const pos = sl.PositionAndShape.AbsolutePosition, gap = sl.StaffHeight / (n - 1);
+    for (let i = 0; i < n; i++) {
+      const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      t.setAttribute("class", "tab-tuning"); t.setAttribute("x", pos.x * u - 22 * o.zoom);
+      t.setAttribute("y", (pos.y + i * gap) * u + 3.8 * o.zoom);
+      t.setAttribute("text-anchor", "end"); t.setAttribute("font-size", (11 * o.zoom) + "px");
+      t.setAttribute("font-family", "Arial, sans-serif"); t.setAttribute("font-weight", "bold"); t.setAttribute("fill", "#333");
+      t.textContent = tun[n - 1 - i];
+      svg.appendChild(t);
+    }
+  }
+}
+
 async function drawScore(reload) {
   const holder = $("#osmd");
   if (!osmd) {
@@ -344,11 +373,12 @@ async function drawScore(reload) {
     styleChords(osmd);
     // o autoResize redesenha por conta própria: a cor das partes vai junto em todo render
     const render = osmd.render.bind(osmd);
-    osmd.render = () => { render(); colorParts(holder); };
+    osmd.EngravingRules.SystemLeftMargin = 3.5;      // espaço para as letras das cordas
+    osmd.render = () => { render(); colorParts(holder); tuningLabels(osmd, holder, scoreXml); };
   }
   if (reload) {
     const xml = await (await fetch(scoreUrl())).text();
-    markLabels = partLabels(xml);
+    markLabels = partLabels(xml); scoreXml = xml;
     await osmd.load(xml);
   }
   const last = Math.min(first + PAGE - 1, totalBars);
@@ -964,8 +994,10 @@ async function exportPdf() {
     er.MinSkyBottomDistBetweenSystems = 12;
     styleParts(o, 12);                                          // partes (Intro, Verso, Refrão...)
     styleChords(o);
+    er.SystemLeftMargin = 3.5;
     o.render();
     colorParts(holder, partLabels(xml));
+    tuningLabels(o, holder, xml);
     const svgs = [...holder.querySelectorAll("svg")];
     if (!svgs.length) throw new Error("a partitura não gerou páginas");
     // o svg2pdf não entende tamanho de fonte em "pt" e esses textos somem do PDF (números da tablatura,
