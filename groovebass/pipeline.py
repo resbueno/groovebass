@@ -17,14 +17,16 @@ from pathlib import Path
 import numpy as np
 
 from kicksnare import sections as kssections
+from kicksnare.companion import copy_separation
 from kicksnare.ingest import DATA_DIR as KS_DATA
+from kicksnare.quality import STANDARD
 from kicksnare.separate import encode_mp3, needs_separation, separate_drums
 
 from . import harmony, notes as notelib, rhythm, score, tab
 from .config import DATA_DIR
 
-REUSE_FILES = ("audio.wav", "meta.json", "bass.wav", "drums.wav", "no_drums.wav", "separation.json",
-               "beats.json", "bars.json")
+# grade de tempos e compassos do Kicksnare (áudio e faixas vêm por copy_separation, que confere a qualidade)
+GRID_FILES = ("beats.json", "bars.json")
 
 
 # ---------- reaproveitamento do Kicksnare ----------
@@ -38,13 +40,13 @@ def kicksnare_twin(song_id: str, raw_id: str) -> Path | None:
     return cands[0] if cands else None
 
 
-def reuse_from_kicksnare(song_dir: Path, raw_id: str) -> dict:
+def reuse_from_kicksnare(song_dir: Path, raw_id: str, quality: str = STANDARD) -> dict:
     twin = kicksnare_twin(song_dir.name, raw_id)
     if not twin:
         return {}
     song_dir.mkdir(parents=True, exist_ok=True)
-    copied = []
-    for name in REUSE_FILES:
+    copied = copy_separation(twin, song_dir, quality)   # separação só se lá estiver completa e servir
+    for name in GRID_FILES:
         src = twin / name
         if src.exists() and not (song_dir / name).exists():
             shutil.copyfile(src, song_dir / name)
@@ -59,17 +61,23 @@ def reuse_from_kicksnare(song_dir: Path, raw_id: str) -> dict:
 
 
 # ---------- etapas ----------
-def separate(song_dir: Path, on_progress=None) -> dict:
+def separate(song_dir: Path, on_progress=None, quality: str = STANDARD) -> dict:
     audio = song_dir / "audio.wav"
     if not (song_dir / "bass.wav").exists():
         # separação antiga (só bateria) ou nenhuma: refaz com as 4 faixas
         for name in ("drums.wav", "separation.json"):
             (song_dir / name).unlink(missing_ok=True)
     info = {"cached": True}
-    if needs_separation(song_dir):
-        _, info = separate_drums(audio, on_progress=on_progress)
+    if needs_separation(song_dir, quality):
+        _, info = separate_drums(audio, on_progress=on_progress, quality=quality)
     _no_bass(song_dir)
     return info
+
+
+def _stale(derived: Path, source: Path) -> bool:
+    """Falta `derived` ou ele é mais velho que `source` (faixas trocadas: separação HiFi, reaproveitada
+    do Kicksnare ou refeita)."""
+    return not derived.exists() or (source.exists() and derived.stat().st_mtime < source.stat().st_mtime)
 
 
 def _no_bass(song_dir: Path) -> None:
@@ -77,7 +85,7 @@ def _no_bass(song_dir: Path) -> None:
     import soundfile as sf
 
     out = song_dir / "no_bass.wav"
-    if out.exists():
+    if not _stale(out, song_dir / "bass.wav"):
         return
     mix, sr = sf.read(str(song_dir / "audio.wav"), dtype="float32")
     bass, _ = sf.read(str(song_dir / "bass.wav"), dtype="float32")
@@ -199,5 +207,5 @@ def write_scores(song_dir: Path) -> None:
 
 def finalize(song_dir: Path) -> None:
     for wav, mp3 in (("audio.wav", "audio.mp3"), ("bass.wav", "bass.mp3"), ("no_bass.wav", "no_bass.mp3")):
-        if not (song_dir / mp3).exists():
+        if _stale(song_dir / mp3, song_dir / wav):
             encode_mp3(song_dir / wav, song_dir / mp3)

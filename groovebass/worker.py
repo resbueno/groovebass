@@ -1,5 +1,6 @@
 """Fila do GrooveBass. Não tem processo próprio: o worker do Kicksnare chama `run_next()` quando a
-música que espera há mais tempo é do GrooveBass, então nunca rodam dois Demucs ao mesmo tempo."""
+música que espera há mais tempo é do GrooveBass. Com dois workers (padrão e HiFi), cada um atende só a
+sua qualidade aqui também: rodam no máximo dois Demucs, um por qualidade."""
 import json
 import re
 import time
@@ -27,10 +28,13 @@ def process(song: dict) -> None:
     from kicksnare.ingest import ingest
     from kicksnare.worker import _duration
 
+    from kicksnare import quality as qualitylib
+
     sid, source = song["id"], song["source"]
+    quality = qualitylib.normalize(song.get("quality"))
     song_dir = DATA_DIR / sid
     _set(sid, "ingest", "Preparando o áudio")
-    reused = pipeline.reuse_from_kicksnare(song_dir, _raw_id(sid))
+    reused = pipeline.reuse_from_kicksnare(song_dir, _raw_id(sid), quality)
     if reused:
         print(f"[gb {sid}] reaproveitado do Kicksnare: {reused}", flush=True)
     if not (song_dir / "audio.wav").exists():
@@ -43,9 +47,12 @@ def process(song: dict) -> None:
     db.update(sid, duration=_duration(song_dir / "audio.wav"))
     _identify(sid, meta)
 
-    if not (song_dir / "bass.wav").exists():
-        _set(sid, "separate", "Isolando o baixo (alguns minutos)")
-    sep = pipeline.separate(song_dir, on_progress=lambda p: db.update(sid, progress=round(p, 3)))
+    from kicksnare.separate import needs_separation
+
+    if not (song_dir / "bass.wav").exists() or needs_separation(song_dir, quality):
+        hifi = quality == qualitylib.HIFI
+        _set(sid, "separate", "Isolando o baixo em HiFi (mais demorado)" if hifi else "Isolando o baixo (alguns minutos)")
+    sep = pipeline.separate(song_dir, on_progress=lambda p: db.update(sid, progress=round(p, 3)), quality=quality)
     print(f"[gb {sid}] separação {sep}", flush=True)
 
     _set(sid, "transcribe", "Transcrevendo o baixo e a cifra")
@@ -57,8 +64,10 @@ def process(song: dict) -> None:
     timings = dict(row.get("timings") or {})
     if row.get("stage_started"):
         timings["finalize"] = round(time.time() - row["stage_started"], 1)
+    from kicksnare.separate import separation_quality
+
     db.update(sid, status="done", stage=None, message="Pronto", stats=stats, finished=time.time(), error=None,
-              timings=timings, progress=1.0)
+              timings=timings, progress=1.0, quality=separation_quality(song_dir, quality))
     _copy_identity(sid)
 
 
@@ -108,17 +117,17 @@ def _identify(sid: str, meta) -> None:
         print(f"[gb {sid}] identificação falhou: {e}", flush=True)
 
 
-def requeue() -> int:
-    return db.requeue_interrupted()
+def requeue(qualities=None) -> int:
+    return db.requeue_interrupted(qualities)
 
 
-def oldest_queued() -> float | None:
-    return db.oldest_queued()
+def oldest_queued(qualities=None) -> float | None:
+    return db.oldest_queued(qualities)
 
 
-def run_next() -> bool:
-    """Processa a próxima da fila. False se a fila estava vazia."""
-    song = db.claim_next()
+def run_next(qualities=None) -> bool:
+    """Processa a próxima da fila (das qualidades deste worker). False se a fila estava vazia."""
+    song = db.claim_next(qualities)
     if not song:
         return False
     print(f"[gb {song['id']}] iniciando", flush=True)

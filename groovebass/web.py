@@ -11,7 +11,7 @@ import re
 import shutil
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from kicksnare import auth as authlib
 from kicksnare import db as ksdb
 from kicksnare import eta as etalib
+from kicksnare import quality as qualitylib
 from kicksnare import sections as kssections
 from kicksnare.ingest import file_song_id
 from kicksnare.separate import encode_mp3
@@ -220,9 +221,14 @@ def _ready(song_id: str, write: bool = False) -> Path:
 
 # Biblioteca compartilhada com o Kicksnare: o que entra aqui entra lá (mesmo id e dono); nome, banda e
 # compartilhamento acompanham. Apagar é independente em cada sistema.
-def _mirror_enqueue(song_id: str, source: str, title: str | None, owner_id: int) -> None:
+def _mirror_enqueue(song_id: str, source: str, title: str | None, owner_id: int, quality: str) -> None:
     if not ksdb.get(song_id):
-        ksdb.enqueue(song_id, source, title=title, owner_id=owner_id)
+        ksdb.enqueue(song_id, source, title=title, owner_id=owner_id, quality=quality)
+
+
+def _systems() -> list:
+    """Filas que dividem os mesmos workers (esta primeiro): base da previsão de tempo."""
+    return [db, ksdb]
 
 
 def _mirror_update(song_id: str, **fields) -> None:
@@ -257,12 +263,20 @@ def list_songs(mine: bool = False) -> list[dict]:
     songs = [{**_fresh(s), "can_edit": admin or s.get("owner_id") == user["id"]}
              for s in db.list_songs(owner, with_shared=not mine)]
     if any(s["status"] in ("queued", "running") for s in songs):
-        etalib.annotate(songs, db.active_songs(), db.history())
+        etalib.annotate(songs, _systems())
     return songs
+
+
+@app.get("/api/estimate")
+def estimate(url: str | None = None, duration: float | None = None) -> dict:
+    """Previsão de tempo de uma música nova em cada qualidade (Padrão e HiFi), antes de enviar."""
+    _require_user()
+    return etalib.new_song(url, duration, _systems())
 
 
 class NewSong(BaseModel):
     url: str
+    quality: str = qualitylib.STANDARD
 
 
 @app.post("/api/songs")
@@ -277,13 +291,14 @@ def add_song(body: NewSong) -> dict:
     existing = db.get(song_id)
     if not (existing and existing.get("owner_id") == user["id"] and existing["status"] in ("queued", "running", "done")):
         _check_quota(user)
-    song = db.enqueue(song_id, url, owner_id=user["id"])
-    _mirror_enqueue(song_id, url, None, user["id"])
+    quality = qualitylib.normalize(body.quality)
+    song = db.enqueue(song_id, url, owner_id=user["id"], quality=quality)
+    _mirror_enqueue(song_id, url, None, user["id"], quality)
     return song
 
 
 @app.post("/api/upload")
-async def upload(file: UploadFile = File(...)) -> dict:
+async def upload(file: UploadFile = File(...), quality: str = Form(qualitylib.STANDARD)) -> dict:
     user = _require_user()
     _check_quota(user)
     name = re.sub(r"[^A-Za-z0-9._ -]", "_", Path(file.filename or "audio").name)[:120]
@@ -300,8 +315,9 @@ async def upload(file: UploadFile = File(...)) -> dict:
                 raise HTTPException(413, "arquivo grande demais (máx. 300 MB)")
             out.write(chunk)
     song_id = _scoped_id(user, file_song_id(dest))
-    song = db.enqueue(song_id, str(dest), title=Path(name).stem, owner_id=user["id"])
-    _mirror_enqueue(song_id, str(dest), Path(name).stem, user["id"])
+    quality = qualitylib.normalize(quality)
+    song = db.enqueue(song_id, str(dest), title=Path(name).stem, owner_id=user["id"], quality=quality)
+    _mirror_enqueue(song_id, str(dest), Path(name).stem, user["id"], quality)
     return song
 
 
@@ -309,7 +325,7 @@ async def upload(file: UploadFile = File(...)) -> dict:
 def get_song(song_id: str) -> dict:
     song = _song(song_id)
     if song["status"] in ("queued", "running"):
-        etalib.annotate([song], db.active_songs(), db.history())
+        etalib.annotate([song], _systems())
     owner = ksdb.get_user(song["owner_id"]) if song.get("owner_id") else None
     return {**song, "owner": owner["username"] if owner else None}
 
@@ -377,13 +393,20 @@ def retry(song_id: str) -> dict:
     return db.get(song_id)
 
 
+class Reprocess(BaseModel):
+    quality: str | None = None       # None = mantém a qualidade da música
+
+
 @app.post("/api/songs/{song_id}/reprocess")
-def reprocess(song_id: str) -> dict:
-    """Refaz a transcrição com o algoritmo atual (o baixo já separado e as partes são mantidos)."""
+def reprocess(song_id: str, body: Reprocess | None = None) -> dict:
+    """Refaz a transcrição com o algoritmo atual (o baixo já separado e as partes são mantidos). Pedindo
+    HiFi numa música separada em padrão, a separação é refeita em HiFi; o contrário reaproveita a HiFi."""
     song = _song(song_id, write=True)
     if song["status"] in ("queued", "running"):
         raise HTTPException(409, "já está na fila ou em processamento")
-    db.update(song_id, status="queued", message="Na fila para reprocessar", error=None, stage=None, progress=0.0)
+    quality = qualitylib.normalize(body.quality if body and body.quality else song.get("quality"))
+    db.update(song_id, status="queued", message="Na fila para reprocessar", error=None, stage=None, progress=0.0,
+              quality=quality)
     return db.get(song_id)
 
 
